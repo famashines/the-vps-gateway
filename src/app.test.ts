@@ -150,7 +150,12 @@ const student = {
   fatherName: "Imran Khan",
   dateOfBirth: "2016-03-14",
   gender: "female",
-  guardian: { name: "Imran Khan", relation: "father", phone: "+923001234567" },
+  guardian: { name: "Imran Khan", relation: "father", phone: "+923001234567", cnic: "35202-7654321-9" },
+  bFormNumber: "35202-1234567-8",
+  address: "House 12, Street 4, Gulberg III, Lahore",
+  familyStatus: "father-deceased",
+  familyStatusNote: "The uncle pays the fees.",
+  siblings: { count: 1, studentIds: [] },
 };
 const key = "6f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f";
 const register = (body: unknown, headers: Record<string, string> = { "idempotency-key": key }, roles = ["admin"], instance = app()) =>
@@ -177,10 +182,18 @@ test("register: a student user gets 403 and nothing reaches admissions", async (
 
 test("register: wrong fields come back by name, and nothing reaches admissions", async () => {
   received.length = 0;
-  const response = await register({ ...student, dateOfBirth: "2016-02-30", guardian: { name: "Imran Khan", relation: "father" }, grade: "3" });
+  const response = await register({
+    ...student,
+    dateOfBirth: "2016-02-30",
+    guardian: { name: "Imran Khan", relation: "father" },
+    grade: "3",
+    bFormNumber: "3520212345678",
+    familyStatus: "orphan",
+    siblings: { count: -1, studentIds: [] },
+  });
   assert.equal(response.statusCode, 400);
   const fields = response.json().fields.map((f: { field: string }) => f.field).sort();
-  assert.deepEqual(fields, ["dateOfBirth", "grade", "guardian.phone"]);
+  assert.deepEqual(fields, ["bFormNumber", "dateOfBirth", "familyStatus", "grade", "guardian.cnic", "guardian.phone", "siblings.count"]);
   assert.equal(received.length, 0);
 });
 
