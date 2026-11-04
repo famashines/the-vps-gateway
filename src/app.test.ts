@@ -185,15 +185,16 @@ test("register: wrong fields come back by name, and nothing reaches admissions",
   const response = await register({
     ...student,
     dateOfBirth: "2016-02-30",
-    guardian: { name: "Imran Khan", relation: "father" },
+    guardian: { name: "Imran Khan", relation: "father", phone2: "0321-1234567" },
     grade: "3",
     bFormNumber: "3520212345678",
     familyStatus: "orphan",
     siblings: { count: -1, studentIds: [] },
+    previousSchoolName: "",
   });
   assert.equal(response.statusCode, 400);
   const fields = response.json().fields.map((f: { field: string }) => f.field).sort();
-  assert.deepEqual(fields, ["bFormNumber", "dateOfBirth", "familyStatus", "grade", "guardian.cnic", "guardian.phone", "siblings.count"]);
+  assert.deepEqual(fields, ["bFormNumber", "dateOfBirth", "familyStatus", "grade", "guardian.cnic", "guardian.phone", "guardian.phone2", "previousSchoolName", "siblings.count"]);
   assert.equal(received.length, 0);
 });
 
