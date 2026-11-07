@@ -32,6 +32,18 @@ fakeAdmissions.post("/commands/register-student", async (request, reply) => {
   received.push(request.body as Record<string, any>);
   return reply.code(201).send({ studentId: "s2", admissionNumber: "2026-0001" });
 });
+const photos = new Map<string, { type: string; bytes: Buffer; by: string }>();
+fakeAdmissions.addContentTypeParser("image/jpeg", { parseAs: "buffer" }, (_request, body, done) => done(null, body));
+fakeAdmissions.put("/students/:id/photo", async (request, reply) => {
+  const { id } = request.params as { id: string };
+  photos.set(id, { type: String(request.headers["content-type"]), bytes: request.body as Buffer, by: String(request.headers["issued-by"]) });
+  return reply.code(204).send();
+});
+fakeAdmissions.get("/students/:id/photo", async (request, reply) => {
+  const found = photos.get((request.params as { id: string }).id);
+  if (!found) return reply.code(404).send({ error: "This student has no photo." });
+  return reply.type(found.type).header("cache-control", "no-store").send(found.bytes);
+});
 const fakeFees = Fastify();
 fakeFees.get("/accounts", async () => [{ accountId: "a1" }]);
 fakeFees.get("/fee-schedules", async () => [{ grade: "class-3" }]);
@@ -149,6 +161,7 @@ const student = {
   lastName: "Khan",
   fatherName: "Imran Khan",
   dateOfBirth: "2016-03-14",
+  admissionDate: "2026-04-01",
   gender: "female",
   guardian: { name: "Imran Khan", relation: "father", phone: "+923001234567", cnic: "35202-7654321-9" },
   bFormNumber: "35202-1234567-8",
@@ -317,4 +330,29 @@ test("fee routes: bad money, a bad id or a teacher are refused before the fees s
   const down = await app({ feesUrl: "http://127.0.0.1:9" }).inject({ url: "/api/fees/accounts", cookies: sessionCookie(["admin"]) });
   assert.equal(down.statusCode, 502);
   assert.match(down.json().error, /fees service did not answer/);
+});
+
+test("photo: an admin uploads and reads it through admissions; others, bad ids and other types are refused", async () => {
+  const id = "0b8e6f3a-6a2e-4f7e-9a51-2f1d3c4b5a69";
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+  const put = (headers: Record<string, string>, cookies = sessionCookie(["admin"]), url = `/api/students/${id}/photo`, body: Buffer | string = jpeg) =>
+    app().inject({ method: "PUT", url, payload: body, cookies, headers: { origin: appUrl, "content-type": "image/jpeg", ...headers } });
+
+  assert.equal((await app().inject({ url: `/api/students/${id}/photo`, cookies: sessionCookie(["admin"]) })).statusCode, 404);
+  assert.equal((await put({})).statusCode, 204);
+  assert.deepEqual(photos.get(id), { type: "image/jpeg", bytes: jpeg, by: "u1" });
+  const read = await app().inject({ url: `/api/students/${id}/photo`, cookies: sessionCookie(["admin"]) });
+  assert.equal(read.statusCode, 200);
+  assert.equal(read.headers["content-type"], "image/jpeg");
+  assert.equal(read.headers["cache-control"], "no-store");
+  assert.deepEqual(read.rawPayload, jpeg);
+
+  photos.clear();
+  assert.equal((await app().inject({ url: `/api/students/${id}/photo` })).statusCode, 401);
+  assert.equal((await put({}, sessionCookie(["student"]))).statusCode, 403);
+  assert.equal((await put({ origin: "https://evil.test" })).statusCode, 403);
+  assert.equal((await put({}, sessionCookie(["admin"]), "/api/students/not-a-uuid/photo")).statusCode, 400);
+  assert.equal((await put({ "content-type": "image/svg+xml" }, sessionCookie(["admin"]), undefined, "<svg/>")).statusCode, 415);
+  assert.equal((await put({}, sessionCookie(["admin"]), undefined, Buffer.alloc(1024 * 1024 + 1))).statusCode, 413);
+  assert.equal(photos.size, 0);
 });
