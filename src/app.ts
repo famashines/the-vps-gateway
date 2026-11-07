@@ -188,6 +188,32 @@ export function buildApp(settings: Settings, options: FastifyServerOptions = {})
   command("PUT", "/api/enrollments/:enrollmentId", "admissions.ChangeStudentClass", valid.validChangeStudentClass, "/commands/change-student-class");
   command("PUT", "/api/academic-years/:academicYearId", "admissions.UpdateAcademicYear", valid.validUpdateAcademicYear, "/commands/update-academic-year");
 
+  app.addContentTypeParser(["image/jpeg", "image/png", "image/webp"], { parseAs: "buffer", bodyLimit: 1024 * 1024 }, (_request, body, done) => done(null, body));
+
+  const photo = async (request: FastifyRequest, reply: FastifyReply) => {
+    const { studentId } = request.params as { studentId: string };
+    if (!uuid.test(studentId)) return reply.code(400).send({ error: "The student id must be a UUID." });
+    const put = request.method === "PUT";
+    try {
+      const response = await fetch(`${settings.admissionsUrl}/students/${studentId}/photo`, {
+        method: request.method,
+        ...(put && { headers: { "content-type": String(request.headers["content-type"]), "issued-by": request.session!.sub }, body: new Uint8Array(request.body as Buffer) }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      reply.code(response.status);
+      for (const name of ["content-type", "cache-control"]) {
+        const value = response.headers.get(name);
+        if (value) reply.header(name, value);
+      }
+      return reply.send(response.status === 204 ? undefined : Buffer.from(await response.arrayBuffer()));
+    } catch (error) {
+      reply.log.error({ err: error }, "admissions service unreachable");
+      return reply.code(502).send({ error: "The admissions service did not answer. Try again in a minute." });
+    }
+  };
+  app.get("/api/students/:studentId/photo", { preHandler: requireRole("admin") }, photo);
+  app.put("/api/students/:studentId/photo", { preHandler: requireRole("admin") }, photo);
+
   app.get("/api/academic-years", { preHandler: requireRole("admin") }, async (_request, reply) => admissions(reply, "/academic-years"));
 
   command("POST", "/api/fees/schedules", "fees.SetFeeSchedule", valid.validSetFeeSchedule, "/commands/set-fee-schedule", fees);
